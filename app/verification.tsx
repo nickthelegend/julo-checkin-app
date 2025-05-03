@@ -5,15 +5,17 @@ import { ThemedView } from "@/components/ThemedView"
 import { IconSymbol } from "@/components/ui/IconSymbol"
 import { router, useLocalSearchParams } from "expo-router"
 import { useEffect, useRef, useState } from "react"
-import { Animated, Dimensions, StyleSheet, TouchableOpacity, View } from "react-native"
+import { Animated, Dimensions, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native"
 
 const { width } = Dimensions.get("window")
 
 export default function VerificationScreen() {
   const { data } = useLocalSearchParams()
   const [attendeeInfo, setAttendeeInfo] = useState(null)
+  const [signature, setSignature] = useState(null)
   const [isVerified, setIsVerified] = useState(false)
   const [isMarked, setIsMarked] = useState(false)
+  const [parsedData, setParsedData] = useState(null)
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current
@@ -41,15 +43,30 @@ export default function VerificationScreen() {
 
     try {
       // Try to parse the data as JSON
-      const parsedData = JSON.parse(data)
-      setAttendeeInfo(parsedData)
+      const parsedQrData = JSON.parse(data)
+      setParsedData(parsedQrData)
 
-      // Check if this is a valid attendee (you would implement your own verification logic)
-      if (parsedData.name && parsedData.id) {
-        setIsVerified(true)
+      // Check if this is the specific format with payload and signature
+      if (parsedQrData.payload && parsedQrData.signature) {
+        setAttendeeInfo(parsedQrData.payload)
+        setSignature(parsedQrData.signature)
+
+        // Verify based on payload data
+        if (parsedQrData.payload.eventId && parsedQrData.payload.userAddress) {
+          setIsVerified(true)
+        }
+      } else {
+        // Handle regular JSON format
+        setAttendeeInfo(parsedQrData)
+
+        // Check if this is a valid attendee
+        if (parsedQrData.name && parsedQrData.id) {
+          setIsVerified(true)
+        }
       }
     } catch (error) {
       // If not valid JSON, just use the string
+      console.log("Error parsing QR data:", error)
       setAttendeeInfo({ rawData: data })
       setIsVerified(false)
     }
@@ -69,6 +86,19 @@ export default function VerificationScreen() {
     }, 2000)
   }
 
+  // Function to safely render any value
+  const renderValue = (value) => {
+    if (value === null || value === undefined) {
+      return "N/A"
+    } else if (typeof value === "object") {
+      return JSON.stringify(value).substring(0, 50) + (JSON.stringify(value).length > 50 ? "..." : "")
+    } else if (typeof value === "string" && value.length > 30) {
+      return value.substring(0, 30) + "..."
+    } else {
+      return String(value)
+    }
+  }
+
   const renderAttendeeInfo = () => {
     if (!attendeeInfo) return null
 
@@ -85,9 +115,9 @@ export default function VerificationScreen() {
           <View style={styles.divider} />
 
           <ThemedText style={styles.rawDataLabel}>Scanned Data:</ThemedText>
-          <View style={styles.rawDataContainer}>
-            <ThemedText style={styles.rawData}>{attendeeInfo.rawData}</ThemedText>
-          </View>
+          <ScrollView style={styles.rawDataContainer}>
+            <ThemedText style={styles.rawData}>{String(attendeeInfo.rawData)}</ThemedText>
+          </ScrollView>
 
           <View style={styles.warningContainer}>
             <IconSymbol name="info.circle.fill" size={16} color="#FF3B30" />
@@ -118,31 +148,40 @@ export default function VerificationScreen() {
 
         <View style={styles.divider} />
 
-        <View style={styles.attendeePhotoContainer}>
-          <View style={styles.attendeePhoto}>
-            <IconSymbol name="person.fill" size={40} color="#FFFFFF" />
+        <ScrollView style={styles.scrollContainer}>
+          <View style={styles.attendeePhotoContainer}>
+            <View style={styles.attendeePhoto}>
+              <IconSymbol name="person.fill" size={40} color="#FFFFFF" />
+            </View>
+            {attendeeInfo.eventName && <ThemedText style={styles.attendeeName}>{attendeeInfo.eventName}</ThemedText>}
           </View>
-          {attendeeInfo.name && <ThemedText style={styles.attendeeName}>{attendeeInfo.name}</ThemedText>}
-        </View>
 
-        <View style={styles.infoContainer}>
-          {Object.entries(attendeeInfo).map(([key, value]) => {
-            // Skip name as it's displayed above
-            if (key === "name") return null
+          <View style={styles.infoContainer}>
+            {Object.entries(attendeeInfo).map(([key, value]) => {
+              // Skip eventName as it's displayed above
+              if (key === "eventName") return null
 
-            return (
-              <View key={key} style={styles.infoRow}>
-                <ThemedText style={styles.infoLabel}>{key.charAt(0).toUpperCase() + key.slice(1)}</ThemedText>
-                <ThemedText style={styles.infoValue}>{value}</ThemedText>
+              return (
+                <View key={key} style={styles.infoRow}>
+                  <ThemedText style={styles.infoLabel}>{key.charAt(0).toUpperCase() + key.slice(1)}</ThemedText>
+                  <ThemedText style={styles.infoValue}>{renderValue(value)}</ThemedText>
+                </View>
+              )
+            })}
+
+            {signature && (
+              <View style={styles.signatureContainer}>
+                <ThemedText style={styles.signatureLabel}>Signature</ThemedText>
+                <ThemedText style={styles.signatureValue}>{signature.substring(0, 20)}...</ThemedText>
               </View>
-            )
-          })}
-        </View>
+            )}
+          </View>
 
-        <View style={[styles.statusBadge, isVerified ? styles.verified : styles.unverified]}>
-          <IconSymbol name={isVerified ? "checkmark.circle.fill" : "xmark.circle.fill"} size={16} color="#FFFFFF" />
-          <ThemedText style={styles.statusText}>{isVerified ? "VERIFIED" : "NOT VERIFIED"}</ThemedText>
-        </View>
+          <View style={[styles.statusBadge, isVerified ? styles.verified : styles.unverified]}>
+            <IconSymbol name={isVerified ? "checkmark.circle.fill" : "xmark.circle.fill"} size={16} color="#FFFFFF" />
+            <ThemedText style={styles.statusText}>{isVerified ? "VERIFIED" : "NOT VERIFIED"}</ThemedText>
+          </View>
+        </ScrollView>
       </Animated.View>
     )
   }
@@ -207,6 +246,10 @@ const styles = StyleSheet.create({
     elevation: 5,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
+    maxHeight: 500,
+  },
+  scrollContainer: {
+    maxHeight: 400,
   },
   verifiedCard: {
     borderLeftWidth: 5,
@@ -254,6 +297,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "bold",
     color: "#333333",
+    textAlign: "center",
   },
   infoContainer: {
     padding: 15,
@@ -269,13 +313,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#666666",
     fontWeight: "500",
+    flex: 1,
   },
   infoValue: {
     fontSize: 16,
     color: "#333333",
     fontWeight: "600",
-    maxWidth: "60%",
+    flex: 1.5,
     textAlign: "right",
+  },
+  signatureContainer: {
+    marginTop: 15,
+    padding: 10,
+    backgroundColor: "#F8F8F8",
+    borderRadius: 10,
+  },
+  signatureLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#333333",
+    marginBottom: 5,
+  },
+  signatureValue: {
+    fontSize: 14,
+    color: "#666666",
   },
   statusBadge: {
     flexDirection: "row",
@@ -310,6 +371,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F0F0",
     margin: 15,
     borderRadius: 10,
+    maxHeight: 200,
   },
   rawData: {
     fontSize: 14,
